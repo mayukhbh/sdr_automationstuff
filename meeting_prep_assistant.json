@@ -1,0 +1,465 @@
+{
+  "name": "Meeting Prep Assistant",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "meeting-booked",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "2b8d8140-8f97-4a12-90fa-6aa5f419732a",
+      "name": "Meeting Booked (CRM)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        320
+      ],
+      "webhookId": "bc56a7dc-cc25-4548-aefe-7b24d8fa384b",
+      "notes": "Generic CRM webhook. Swap for HubSpot Trigger / Salesforce Trigger / Calendly node if preferred. Expected JSON body documented in the inventory."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "826ee13e-df36-47a3-a58a-ea7363ffd194",
+              "name": "email",
+              "type": "string",
+              "value": "={{ $json.body.attendee_email }}"
+            },
+            {
+              "id": "d0b8d023-feba-4732-939f-0e24ce8e68a4",
+              "name": "fullName",
+              "type": "string",
+              "value": "={{ $json.body.attendee_name }}"
+            },
+            {
+              "id": "50d41d41-dd35-4cbd-8586-152ac638536a",
+              "name": "companyName",
+              "type": "string",
+              "value": "={{ $json.body.company_name }}"
+            },
+            {
+              "id": "39b5647e-a0ca-48b5-bd86-ee813a880210",
+              "name": "companyDomain",
+              "type": "string",
+              "value": "={{ $json.body.company_domain }}"
+            },
+            {
+              "id": "8db2d681-7456-4f11-943e-6ccd03203baf",
+              "name": "linkedinUrl",
+              "type": "string",
+              "value": "={{ $json.body.linkedin_url }}"
+            },
+            {
+              "id": "ecbcfba0-7df3-416c-be4f-fea7cf32538b",
+              "name": "meetingTime",
+              "type": "string",
+              "value": "={{ $json.body.meeting_start_time }}"
+            },
+            {
+              "id": "bd6a6efa-5275-4364-8349-c7f53c2da933",
+              "name": "ownerSlackChannel",
+              "type": "string",
+              "value": "={{ $json.body.owner_slack_channel }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b912d9ca-ab55-453b-85b0-7d1c05855db4",
+      "name": "Extract Attendee Info",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.peopledatalabs.com/v5/person/enrich",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "email",
+              "value": "={{ $json.email }}"
+            },
+            {
+              "name": "profile",
+              "value": "={{ $json.linkedinUrl }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "0b59feec-9d56-4b1b-ba07-eca6ac7a66d4",
+      "name": "Enrich Person (LinkedIn)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        80
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Person Enrichment API (e.g. PDL / Proxycurl)"
+        }
+      },
+      "notes": "Placeholder enrichment endpoint \u2014 replace URL/params/credential with your provider."
+    },
+    {
+      "parameters": {
+        "url": "=https://{{ $('Extract Attendee Info').item.json.companyDomain }}",
+        "authentication": "none",
+        "sendQuery": false,
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "664bd1d0-3d5f-4e5a-8ad4-e80813bcd51a",
+      "name": "Company Website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        80
+      ],
+      "notes": "Placeholder enrichment endpoint \u2014 replace URL/params/credential with your provider."
+    },
+    {
+      "parameters": {
+        "url": "https://api.harmonic.ai/companies",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "domain",
+              "value": "={{ $('Extract Attendee Info').item.json.companyDomain }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "1724a99c-dbfc-4b5d-bab9-8363cd50154a",
+      "name": "Funding Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        80
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Funding API (e.g. Harmonic / Crunchbase)"
+        }
+      },
+      "notes": "Placeholder enrichment endpoint \u2014 replace URL/params/credential with your provider."
+    },
+    {
+      "parameters": {
+        "url": "https://api.builtwith.com/v21/api.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "LOOKUP",
+              "value": "={{ $('Extract Attendee Info').item.json.companyDomain }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "eeaf1ee5-9415-40e4-96e8-edd8a4f810f5",
+      "name": "Tech Stack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        80
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Tech Stack API (e.g. BuiltWith)"
+        }
+      },
+      "notes": "Placeholder enrichment endpoint \u2014 replace URL/params/credential with your provider."
+    },
+    {
+      "parameters": {
+        "url": "https://newsapi.org/v2/everything",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $('Extract Attendee Info').item.json.companyName }}"
+            },
+            {
+              "name": "sortBy",
+              "value": "publishedAt"
+            },
+            {
+              "name": "pageSize",
+              "value": "5"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "553d8f48-20fc-4c87-94b7-f5c975446ce2",
+      "name": "Recent Posts & News",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        80
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "News / Social Posts API (e.g. NewsAPI / LinkedIn posts provider)"
+        }
+      },
+      "notes": "Placeholder enrichment endpoint \u2014 replace URL/params/credential with your provider."
+    },
+    {
+      "parameters": {
+        "jsCode": "const meeting = $('Extract Attendee Info').item.json;\nconst person = $('Enrich Person (LinkedIn)').item.json;\nconst website = $('Company Website').item.json;\nconst funding = $('Funding Data').item.json;\nconst tech = $('Tech Stack').item.json;\nconst posts = $('Recent Posts & News').item.json;\n\nconst prompt = `You are a B2B sales research analyst. Using ONLY the data below, write a concise one-page pre-meeting brief in Slack markdown.\n\nMEETING CONTEXT:\n${JSON.stringify(meeting, null, 2)}\n\nPERSON (LinkedIn / enrichment):\n${JSON.stringify(person, null, 2)}\n\nCOMPANY WEBSITE (raw or scraped):\n${JSON.stringify(website, null, 2)}\n\nFUNDING:\n${JSON.stringify(funding, null, 2)}\n\nTECH STACK:\n${JSON.stringify(tech, null, 2)}\n\nRECENT POSTS / NEWS:\n${JSON.stringify(posts, null, 2)}\n\nProduce exactly these sections with bold headers:\n*Company Overview* (3-4 sentences)\n*Likely Pains* (3-5 bullets, tied to their stage/stack/news)\n*Talking Points* (3-5 bullets)\n*Suggested Questions* (4-6 sharp discovery questions)\nKeep it under one page. If a data source is empty, omit it gracefully rather than guessing.`;\n\nreturn [{ json: { prompt } }];"
+      },
+      "id": "34670942-a7b3-4192-bf18-b957bbcacf47",
+      "name": "Assemble Brief Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"model\": \"claude-3-5-sonnet-20241022\", \"max_tokens\": 1600, \"messages\": [ { \"role\": \"user\", \"content\": {{ JSON.stringify($json.prompt) }} } ] }",
+        "options": {}
+      },
+      "id": "17fb8e62-407e-485c-8533-2cd8868d2f52",
+      "name": "Generate Brief (Claude)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Anthropic API (x-api-key header)"
+        }
+      },
+      "notes": "Header credential must set x-api-key = your Anthropic key. Swap model/provider as needed."
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('Extract Attendee Info').item.json.ownerSlackChannel }}",
+          "mode": "id"
+        },
+        "text": "=:calendar: *Meeting Prep Brief \u2014 {{ $('Extract Attendee Info').item.json.companyName }}*\n\n{{ $json.content[0].text }}",
+        "otherOptions": {}
+      },
+      "id": "c4679918-a77b-412c-89ea-e884eeb053d7",
+      "name": "Post Brief to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1980,
+        320
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Slack API token"
+        }
+      },
+      "notes": "Posts to the rep's channel/DM. Falls back to a static channel id if owner_slack_channel is empty."
+    }
+  ],
+  "connections": {
+    "Meeting Booked (CRM)": {
+      "main": [
+        [
+          {
+            "node": "Extract Attendee Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Attendee Info": {
+      "main": [
+        [
+          {
+            "node": "Enrich Person (LinkedIn)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich Person (LinkedIn)": {
+      "main": [
+        [
+          {
+            "node": "Company Website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Company Website": {
+      "main": [
+        [
+          {
+            "node": "Funding Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Funding Data": {
+      "main": [
+        [
+          {
+            "node": "Tech Stack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tech Stack": {
+      "main": [
+        [
+          {
+            "node": "Recent Posts & News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recent Posts & News": {
+      "main": [
+        [
+          {
+            "node": "Assemble Brief Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Brief Prompt": {
+      "main": [
+        [
+          {
+            "node": "Generate Brief (Claude)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Brief (Claude)": {
+      "main": [
+        [
+          {
+            "node": "Post Brief to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templatecredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "sales-automation"
+    }
+  ]
+}
