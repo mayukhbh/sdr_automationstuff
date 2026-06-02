@@ -1,0 +1,303 @@
+{
+  "name": "Lost Deal Reactivation Engine",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      },
+      "id": "62d4d6c8-fd10-488c-a332-f9f9e5f6b9ff",
+      "name": "Daily Signal Scan",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "notes": "Runs daily at 07:00. Match WINDOW_DAYS in the Code node to this frequency."
+    },
+    {
+      "parameters": {
+        "url": "https://api.hubapi.com/crm/v3/objects/companies/search",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"filterGroups\": [ { \"filters\": [ { \"propertyName\": \"lifecyclestage\", \"operator\": \"EQ\", \"value\": \"closed_lost\" } ] } ], \"properties\": [\"name\",\"domain\",\"hubspot_owner_id\"], \"limit\": 100 }",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "6af498cd-6cce-4b4d-ab62-91f5c97f45e3",
+      "name": "Get Closed-Lost Accounts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "CRM API (HubSpot / Salesforce / Pipedrive)"
+        }
+      },
+      "notes": "Placeholder = HubSpot closed_lost search. Swap for your CRM. Must output one item per account with: account_id, name, domain, owner id."
+    },
+    {
+      "parameters": {
+        "url": "https://api.predictleads.com/v3/companies/by_domain/events",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "domain",
+              "value": "={{ $json.domain }}"
+            },
+            {
+              "name": "categories",
+              "value": "funding,hiring,leadership,acquisition"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "0f5a52d3-55dd-45a6-afe1-cf8f3ff0b47f",
+      "name": "Get Company Signals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Signal API (Autobound / PredictLeads / Crustdata)"
+        }
+      },
+      "notes": "Single call returns ALL event types (funding, hiring, leadership, M&A) with dates + event IDs. Runs once per account. Adapt the response path in the next node to your provider."
+    },
+    {
+      "parameters": {
+        "jsCode": "const acct = $('Get Closed-Lost Accounts').item.json;\nconst res  = $('Get Company Signals').item.json;\n\n// Signal providers return an array of events. Adapt this path to your provider\n// (e.g. res.events, res.signals, res.data, res.results).\nconst events = res.events || res.signals || res.data || res.results || [];\n\n// 'New' window \u2014 match this to your scan frequency (daily => ~2 days of slack).\nconst WINDOW_DAYS = 7;\nconst cutoff = Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000;\nconst isRecent = (d) => { const t = new Date(d).getTime(); return !isNaN(t) && t >= cutoff; };\n\nconst WANTED = ['funding','hiring','leadership','acquisition','m&a','executive'];\n\nconst newEvents = events.filter((e) => {\n  const type = (e.type || e.category || e.event_type || '').toLowerCase();\n  const date = e.date || e.published_at || e.event_date || e.found_at;\n  return WANTED.some((w) => type.includes(w)) && isRecent(date);\n});\n\nconst signals = newEvents.map((e) =>\n  `${e.type || e.category}: ${e.title || e.summary || e.description || ''}`.trim());\n\n// Event IDs let you persist seen-events to a store and de-dupe across runs\n// (Google Sheet / n8n Data Table / DB). See inventory note on de-duplication.\nconst eventIds = newEvents.map((e) => e.id || e.event_id).filter(Boolean);\n\nconst hasNewSignal = signals.length > 0;\nconst signalSummary = signals.join('; ');\n\nconst draftPrompt = `You are an SDR writing a short, non-pushy re-engagement email to a previously closed-lost account.\n\nACCOUNT:\n${JSON.stringify(acct, null, 2)}\n\nNEW BUYING SIGNAL(S):\n${signalSummary}\n\nWrite a 1-line subject and a 4-6 sentence email. Reference the relevant signal naturally, briefly remind them who we are, propose one low-friction next step. Return plain text with \"Subject:\" on the first line.`;\n\nreturn [{ json: { account: acct, signals, eventIds, hasNewSignal, signalSummary, draftPrompt } }];"
+      },
+      "id": "4b6b89bd-78f2-46cc-8900-7a741ad0ca70",
+      "name": "Detect New Signals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "920d4975-fc34-4a79-ac0c-7685f57a8ef5",
+              "leftValue": "={{ $json.hasNewSignal }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4462e3de-d005-4e84-9194-c53a60485b89",
+      "name": "New Signal?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"model\": \"claude-3-5-sonnet-20241022\", \"max_tokens\": 800, \"messages\": [ { \"role\": \"user\", \"content\": {{ JSON.stringify($json.draftPrompt) }} } ] }",
+        "options": {}
+      },
+      "id": "ef39c80d-722e-4a79-a8d1-1fd3bb11c233",
+      "name": "Draft Re-engagement (Claude)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Anthropic API (x-api-key header)"
+        }
+      },
+      "notes": "Header credential must set x-api-key = your Anthropic key."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/tasks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"properties\": { \"hs_task_subject\": \"Re-engage closed-lost: new buying signal\", \"hs_task_body\": {{ JSON.stringify($json.content[0].text) }}, \"hs_task_priority\": \"HIGH\", \"hs_task_status\": \"NOT_STARTED\", \"hs_timestamp\": \"{{ $now.plus(1, 'day').toMillis() }}\", \"hubspot_owner_id\": \"{{ $('Detect New Signals').item.json.account.hubspot_owner_id }}\" } }",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "023dc081-3636-4520-b4b5-13cb3a7820e7",
+      "name": "Create SDR Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "CRM API (HubSpot / Salesforce / Pipedrive)"
+        }
+      },
+      "notes": "Placeholder = HubSpot task create. Body = Claude-drafted message; assigned to account owner."
+    }
+  ],
+  "connections": {
+    "Daily Signal Scan": {
+      "main": [
+        [
+          {
+            "node": "Get Closed-Lost Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Closed-Lost Accounts": {
+      "main": [
+        [
+          {
+            "node": "Get Company Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Company Signals": {
+      "main": [
+        [
+          {
+            "node": "Detect New Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect New Signals": {
+      "main": [
+        [
+          {
+            "node": "New Signal?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New Signal?": {
+      "main": [
+        [
+          {
+            "node": "Draft Re-engagement (Claude)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Draft Re-engagement (Claude)": {
+      "main": [
+        [
+          {
+            "node": "Create SDR Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "sales-automation"
+    }
+  ]
+}

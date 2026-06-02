@@ -1,0 +1,318 @@
+{
+  "name": "Meeting Prep Assistant",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "meeting-booked",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "a142f369-33c7-41b0-85db-f270beabaff4",
+      "name": "Meeting Booked (CRM)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "b7597afc-0e66-4f7a-87b0-98f674c57307",
+      "notes": "Generic CRM/calendar webhook. Swap for a native HubSpot/Salesforce/Calendly trigger if preferred. Expected JSON body is in the inventory."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d04ba6a4-f48f-48be-bcb3-c3e01b3e0419",
+              "name": "email",
+              "type": "string",
+              "value": "={{ $json.body.attendee_email }}"
+            },
+            {
+              "id": "7b8912b6-fdcd-4af6-acc3-53753e4e3ca7",
+              "name": "fullName",
+              "type": "string",
+              "value": "={{ $json.body.attendee_name }}"
+            },
+            {
+              "id": "934eeddf-1971-4f73-9957-c2ca23b38250",
+              "name": "companyName",
+              "type": "string",
+              "value": "={{ $json.body.company_name }}"
+            },
+            {
+              "id": "1a35ea2c-365b-4038-9940-6e11ee61cb66",
+              "name": "companyDomain",
+              "type": "string",
+              "value": "={{ $json.body.company_domain }}"
+            },
+            {
+              "id": "527754ad-8e88-4f46-9d44-42010ef87e52",
+              "name": "meetingTime",
+              "type": "string",
+              "value": "={{ $json.body.meeting_start_time }}"
+            },
+            {
+              "id": "807f9d9c-854b-45c7-b103-97dd4e79275e",
+              "name": "ownerSlackChannel",
+              "type": "string",
+              "value": "={{ $json.body.owner_slack_channel }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3a497587-2988-4873-b7d7-37efe0afbc71",
+      "name": "Extract Attendee Info",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/people/match",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"email\": {{ JSON.stringify($json.email) }}, \"organization_name\": {{ JSON.stringify($json.companyName) }}, \"domain\": {{ JSON.stringify($json.companyDomain) }}, \"reveal_personal_emails\": false }",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "51569207-2ffb-4316-b6cf-ea5fcfce299d",
+      "name": "Enrich Company & Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Enrichment API (Apollo / PDL / Clearbit / Crustdata)"
+        }
+      },
+      "notes": "Single call returns the person PLUS their organization's firmographics, tech stack, and funding history. Apollo people/match shown; swap endpoint/body/credential for your provider. Verify match rate on your real (Indian D2C) target accounts first."
+    },
+    {
+      "parameters": {
+        "url": "https://newsapi.org/v2/everything",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $('Extract Attendee Info').item.json.companyName }}"
+            },
+            {
+              "name": "sortBy",
+              "value": "publishedAt"
+            },
+            {
+              "name": "pageSize",
+              "value": "5"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "b863d635-dffb-4891-af17-c21271f19375",
+      "name": "Recent News",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "News API (NewsAPI / signal provider)"
+        }
+      },
+      "notes": "Optional. Delete this node if your enrichment provider already returns recent news/posts."
+    },
+    {
+      "parameters": {
+        "jsCode": "const meeting = $('Extract Attendee Info').item.json;\nconst enrich  = $('Enrich Company & Contact').item.json;\nconst news    = $('Recent News').item.json;\n\nconst prompt = `You are a B2B sales research analyst. Using ONLY the data below, write a concise one-page pre-meeting brief in Slack markdown.\n\nMEETING CONTEXT:\n${JSON.stringify(meeting, null, 2)}\n\nENRICHMENT (person + company firmographics + tech stack + funding):\n${JSON.stringify(enrich, null, 2)}\n\nRECENT NEWS:\n${JSON.stringify(news, null, 2)}\n\nProduce exactly these sections with bold headers:\n*Company Overview* (3-4 sentences)\n*Likely Pains* (3-5 bullets, tied to their stage/stack/news)\n*Talking Points* (3-5 bullets)\n*Suggested Questions* (4-6 sharp discovery questions)\nKeep it under one page. If a data source is empty, omit it gracefully rather than guessing.`;\n\nreturn [{ json: { prompt } }];"
+      },
+      "id": "35e0acdc-2d67-4556-8134-d26a6b20576f",
+      "name": "Assemble Brief Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"model\": \"claude-3-5-sonnet-20241022\", \"max_tokens\": 1600, \"messages\": [ { \"role\": \"user\", \"content\": {{ JSON.stringify($json.prompt) }} } ] }",
+        "options": {}
+      },
+      "id": "0ad82e45-2270-4a21-b088-f9f14bd1c82c",
+      "name": "Generate Brief (Claude)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Anthropic API (x-api-key header)"
+        }
+      },
+      "notes": "Header credential must set x-api-key = your Anthropic key."
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('Extract Attendee Info').item.json.ownerSlackChannel }}",
+          "mode": "id"
+        },
+        "text": "=:calendar: *Meeting Prep Brief \u2014 {{ $('Extract Attendee Info').item.json.companyName }}*\n\n{{ $json.content[0].text }}",
+        "otherOptions": {}
+      },
+      "id": "c7d2ed62-831f-412e-b7a5-6e185cae8653",
+      "name": "Post Brief to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1320,
+        300
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Slack API token"
+        }
+      },
+      "notes": "Set a static fallback channel id if owner_slack_channel may be empty."
+    }
+  ],
+  "connections": {
+    "Meeting Booked (CRM)": {
+      "main": [
+        [
+          {
+            "node": "Extract Attendee Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Attendee Info": {
+      "main": [
+        [
+          {
+            "node": "Enrich Company & Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich Company & Contact": {
+      "main": [
+        [
+          {
+            "node": "Recent News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recent News": {
+      "main": [
+        [
+          {
+            "node": "Assemble Brief Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Brief Prompt": {
+      "main": [
+        [
+          {
+            "node": "Generate Brief (Claude)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Brief (Claude)": {
+      "main": [
+        [
+          {
+            "node": "Post Brief to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "sales-automation"
+    }
+  ]
+}
